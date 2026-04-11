@@ -142,9 +142,43 @@ export default function VoicePage() {
         blobs.push(await generateChunk(chunks[i]))
       }
 
-      // Concatenate all audio blobs
-      const combined = new Blob(blobs, { type: 'audio/mpeg' })
-      const url = URL.createObjectURL(combined)
+      let url: string
+      if (blobs.length === 1) {
+        // Single chunk: MP3 has correct duration, use directly
+        url = URL.createObjectURL(blobs[0])
+      } else {
+        // Multi-chunk: decode each MP3, merge PCM, encode as WAV
+        // Downsampled to mono 22050 Hz to keep memory reasonable (~5 MB/min)
+        const TARGET_SAMPLE_RATE = 22050
+        const audioCtx = new AudioContext()
+        const audioBuffers = await Promise.all(
+          blobs.map(async (b) => {
+            const ab = await b.arrayBuffer()
+            return audioCtx.decodeAudioData(ab)
+          })
+        )
+        audioCtx.close()
+
+        const totalLength = audioBuffers.reduce(
+          (sum, b) => sum + Math.ceil(b.length * TARGET_SAMPLE_RATE / b.sampleRate),
+          0
+        )
+
+        // Merge into mono at target sample rate via OfflineAudioContext
+        const offline = new OfflineAudioContext(1, totalLength, TARGET_SAMPLE_RATE)
+        let offsetSec = 0
+        for (const buf of audioBuffers) {
+          const src = offline.createBufferSource()
+          src.buffer = buf
+          src.connect(offline.destination)
+          src.start(offsetSec)
+          offsetSec += buf.duration
+        }
+        const merged = await offline.startRendering()
+
+        const wavBlob = audioBufferToWav(merged)
+        url = URL.createObjectURL(wavBlob)
+      }
 
       const id = crypto.randomUUID()
       const language: HistoryItem['language'] = 'zh'
@@ -442,4 +476,47 @@ export default function VoicePage() {
       </main>
     </div>
   )
+}
+
+/** Encode an AudioBuffer as a WAV Blob with correct duration metadata */
+function audioBufferToWav(buffer: AudioBuffer): Blob {
+  const numChannels = buffer.numberOfChannels
+  const sampleRate = buffer.sampleRate
+  const format = 1 // PCM
+  const bitDepth = 16
+  const numSamples = buffer.length
+  const dataSize = numSamples * numChannels * (bitDepth / 8)
+  const bufferSize = 44 + dataSize
+  const arrayBuffer = new ArrayBuffer(bufferSize)
+  const view = new DataView(arrayBuffer)
+
+  function writeString(offset: number, str: string) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
+  }
+
+  writeString(0, 'RIFF')
+  view.setUint32(4, 36 + dataSize, true)
+  writeString(8, 'WAVE')
+  writeString(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, format, true)
+  view.setUint16(22, numChannels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * numChannels * (bitDepth / 8), true)
+  view.setUint16(32, numChannels * (bitDepth / 8), true)
+  view.setUint16(34, bitDepth, true)
+  writeString(36, 'data')
+  view.setUint32(40, dataSize, true)
+
+  // Interleave channels and write PCM samples
+  let offset = 44
+  for (let i = 0; i < numSamples; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      const sample = Math.max(-1, Math.min(1, buffer.getChannelData(ch)[i]))
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
+      offset += 2
+    }
+  }
+
+  return new Blob([arrayBuffer], { type: 'audio/wav' })
 }
