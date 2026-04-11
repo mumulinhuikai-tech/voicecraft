@@ -81,6 +81,45 @@ export default function VoicePage() {
   const currentBlobUrlRef = useCallback(() => {}, [])
   void currentBlobUrlRef
 
+  // Split text on sentence boundaries into chunks of max size
+  function splitTextChunks(input: string, maxSize: number): string[] {
+    if (input.length <= maxSize) return [input]
+    const chunks: string[] = []
+    const pattern = /[。！？.!?\n]+/g
+    const sentences: string[] = []
+    let lastIndex = 0
+    let match: RegExpExecArray | null
+    while ((match = pattern.exec(input)) !== null) {
+      sentences.push(input.slice(lastIndex, match.index + match[0].length))
+      lastIndex = match.index + match[0].length
+    }
+    if (lastIndex < input.length) sentences.push(input.slice(lastIndex))
+    let current = ''
+    for (const s of sentences) {
+      if ((current + s).length > maxSize && current.length > 0) {
+        chunks.push(current.trim())
+        current = s
+      } else {
+        current += s
+      }
+    }
+    if (current.trim()) chunks.push(current.trim())
+    return chunks.length > 0 ? chunks : [input.slice(0, maxSize)]
+  }
+
+  async function generateChunk(chunk: string): Promise<Blob> {
+    const res = await fetch('/api/tts/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: chunk, emotion, speed, expressiveness, voiceId: voiceId || undefined }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || '生成失败，请重试。')
+    }
+    return res.blob()
+  }
+
   async function handleGenerate() {
     if (!canGenerate) return
 
@@ -88,42 +127,30 @@ export default function VoicePage() {
     setErrorMessage('')
 
     try {
-      const res = await fetch('/api/tts/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: text.trim(),
-          emotion,
-          speed,
-          expressiveness,
-          voiceId: voiceId || undefined,
-        }),
-      })
+      const trimmed = text.trim()
+      const chunks = splitTextChunks(trimmed, 2500)
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || '生成失败，请重试。')
+      // Generate chunks sequentially to avoid rate limiting
+      const blobs: Blob[] = []
+      for (const chunk of chunks) {
+        blobs.push(await generateChunk(chunk))
       }
 
-      // Receive audio as binary blob, create an object URL
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
+      // Concatenate all audio blobs
+      const combined = new Blob(blobs, { type: 'audio/mpeg' })
+      const url = URL.createObjectURL(combined)
 
-      // Read metadata from response headers
-      const id = res.headers.get('X-Generation-Id') || crypto.randomUUID()
-      const textPreview = decodeURIComponent(res.headers.get('X-Text-Preview') || '')
-      const language = (res.headers.get('X-Language') || 'zh') as HistoryItem['language']
+      const id = crypto.randomUUID()
+      const language: HistoryItem['language'] = 'zh'
 
-      // Revoke previous blob URL to free memory
       if (audioUrl && audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl)
       setAudioUrl(url)
       setStatus('success')
 
-      // Save to localStorage history
       const item: HistoryItem = {
         id,
-        inputText: text.trim(),
-        textPreview,
+        inputText: trimmed,
+        textPreview: trimmed.slice(0, 50),
         selectedEmotion: emotion,
         speed,
         expressiveness,
