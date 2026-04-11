@@ -79,12 +79,6 @@ export function insertChinesePauses(
   // Normalize Chinese ellipsis
   result = result.replace(/……/g, '…')
 
-  // For high expressiveness, add extra whitespace after long-pause punctuation
-  // to hint at the TTS engine to extend the pause
-  if (expressiveness > 0.6) {
-    result = result.replace(/([。！？…])/g, '$1 ')
-  }
-
   return result
 }
 

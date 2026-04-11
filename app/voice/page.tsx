@@ -107,12 +107,17 @@ export default function VoicePage() {
     return chunks.length > 0 ? chunks : [input.slice(0, maxSize)]
   }
 
-  async function generateChunk(chunk: string): Promise<Blob> {
+  async function generateChunk(chunk: string, attempt = 0): Promise<Blob> {
     const res = await fetch('/api/tts/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: chunk, emotion, speed, expressiveness, voiceId: voiceId || undefined }),
     })
+    if (res.status === 429 && attempt < 2) {
+      // Rate limited — wait and retry
+      await new Promise(r => setTimeout(r, 3000 + attempt * 2000))
+      return generateChunk(chunk, attempt + 1)
+    }
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       throw new Error(data.error || '生成失败，请重试。')
@@ -130,10 +135,11 @@ export default function VoicePage() {
       const trimmed = text.trim()
       const chunks = splitTextChunks(trimmed, 2500)
 
-      // Generate chunks sequentially to avoid rate limiting
+      // Generate chunks sequentially with delay to avoid rate limiting
       const blobs: Blob[] = []
-      for (const chunk of chunks) {
-        blobs.push(await generateChunk(chunk))
+      for (let i = 0; i < chunks.length; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 500))
+        blobs.push(await generateChunk(chunks[i]))
       }
 
       // Concatenate all audio blobs

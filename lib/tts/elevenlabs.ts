@@ -4,8 +4,8 @@ import { getEmotionSettings } from '@/lib/text/emotion-mapping'
 
 const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1'
 
-// ElevenLabs multilingual model — best for Chinese + English
-const DEFAULT_MODEL = 'eleven_multilingual_v2'
+// eleven_turbo_v2_5: faster, better Chinese pronunciation than multilingual_v2
+const DEFAULT_MODEL = 'eleven_turbo_v2_5'
 
 export class ElevenLabsProvider implements TTSProviderInterface {
   readonly providerName = 'elevenlabs'
