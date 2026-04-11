@@ -7,7 +7,8 @@ import type { Emotion, Language, TTSProvider } from '@/types/tts'
 export const maxDuration = 60
 
 // ElevenLabs multilingual_v2 limit is 5000 chars per call
-const CHUNK_SIZE = 4500
+// Smaller chunks = faster parallel processing
+const CHUNK_SIZE = 1000
 
 function splitTextIntoChunks(text: string, maxChunkSize: number): string[] {
   if (text.length <= maxChunkSize) return [text]
@@ -70,19 +71,20 @@ export async function POST(req: NextRequest) {
 
     const chunks = splitTextIntoChunks(processedText, CHUNK_SIZE)
 
-    // Generate each chunk sequentially
-    const audioBuffers: Buffer[] = []
-    for (const chunk of chunks) {
-      const result = await provider.generateSpeech({
-        text: chunk,
-        emotion,
-        speed,
-        expressiveness,
-        voiceId,
-        language: language as Language,
-      })
-      audioBuffers.push(result.audioBuffer)
-    }
+    // Generate all chunks in parallel for speed
+    const results = await Promise.all(
+      chunks.map(chunk =>
+        provider.generateSpeech({
+          text: chunk,
+          emotion,
+          speed,
+          expressiveness,
+          voiceId,
+          language: language as Language,
+        })
+      )
+    )
+    const audioBuffers = results.map(r => r.audioBuffer)
 
     // Concatenate all audio buffers
     const combined = Buffer.concat(audioBuffers)
