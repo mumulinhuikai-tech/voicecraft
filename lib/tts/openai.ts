@@ -19,13 +19,13 @@ export class OpenAITTSProvider implements TTSProviderInterface {
   }
 
   async generateSpeech(options: GenerateOptions): Promise<GenerateResult> {
-    // Map speed: our 0.5–2.0 maps directly to OpenAI's 0.25–4.0
     const speed = Math.max(0.25, Math.min(4.0, options.speed ?? 1.0))
+    const voice = options.voiceId || DEFAULT_VOICE
 
     const body = {
       model: MODEL,
       input: options.text,
-      voice: DEFAULT_VOICE,
+      voice,
       speed,
       response_format: 'mp3',
     }

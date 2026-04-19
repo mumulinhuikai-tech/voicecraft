@@ -32,6 +32,10 @@ export default function VoicePage() {
   const [expressiveness, setExpressiveness] = useState(0.6)
   const [voiceId, setVoiceId] = useState('')
 
+  // Provider selection: 'openai' | 'elevenlabs'
+  const [provider, setProvider] = useState<'openai' | 'elevenlabs'>('openai')
+  const [openaiVoice, setOpenaiVoice] = useState('nova')
+
   // Voice profile
   const [referenceFiles, setReferenceFiles] = useState<File[]>([])
   const [isCreatingProfile, setIsCreatingProfile] = useState(false)
@@ -108,10 +112,18 @@ export default function VoicePage() {
   }
 
   async function generateChunk(chunk: string, attempt = 0): Promise<Blob> {
+    const effectiveVoiceId = provider === 'openai' ? openaiVoice : (voiceId || undefined)
     const res = await fetch('/api/tts/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: chunk, emotion, speed, expressiveness, voiceId: voiceId || undefined }),
+      body: JSON.stringify({
+        text: chunk,
+        emotion,
+        speed,
+        expressiveness,
+        voiceId: effectiveVoiceId,
+        providerName: provider,
+      }),
     })
     if (res.status === 429 && attempt < 2) {
       // Rate limited — wait and retry
@@ -397,34 +409,100 @@ export default function VoicePage() {
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-5 space-y-5">
           <h2 className="text-sm font-semibold text-neutral-200">声音设置</h2>
 
-          <VoiceIdInput
-            value={voiceId}
-            onChange={setVoiceId}
-            voices={voices}
-            isLoadingVoices={isLoadingVoices}
-            disabled={isGenerating}
-          />
+          {/* Provider toggle */}
+          <div className="flex rounded-xl overflow-hidden border border-neutral-700 text-sm font-medium">
+            <button
+              type="button"
+              onClick={() => setProvider('openai')}
+              disabled={isGenerating}
+              className={[
+                'flex-1 py-2.5 flex items-center justify-center gap-1.5 transition-colors',
+                provider === 'openai'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-neutral-800 text-neutral-400 hover:text-neutral-200',
+              ].join(' ')}
+            >
+              <span className="text-xs bg-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded font-mono">OpenAI</span>
+              标准声音
+            </button>
+            <button
+              type="button"
+              onClick={() => setProvider('elevenlabs')}
+              disabled={isGenerating}
+              className={[
+                'flex-1 py-2.5 flex items-center justify-center gap-1.5 transition-colors',
+                provider === 'elevenlabs'
+                  ? 'bg-violet-600 text-white'
+                  : 'bg-neutral-800 text-neutral-400 hover:text-neutral-200',
+              ].join(' ')}
+            >
+              <span className="text-xs bg-violet-500/30 text-violet-300 px-1.5 py-0.5 rounded font-mono">ElevenLabs</span>
+              我的声音
+            </button>
+          </div>
 
-          <div className="h-px bg-neutral-800" />
-
-          <VoiceRecorder
-            onUseRecording={(file) => setReferenceFiles((prev) => [...prev, file])}
-          />
-
-          <ReferenceAudioUpload
-            files={referenceFiles}
-            onFilesChange={setReferenceFiles}
-            onCreateProfile={handleCreateProfile}
-            disabled={isGenerating}
-            isCreatingProfile={isCreatingProfile}
-            createdVoiceId={createdVoiceId}
-          />
-
-          {profileError && (
-            <div className="rounded-xl border border-amber-900/60 bg-amber-950/30 px-4 py-3 flex items-start gap-2">
-              <span className="text-amber-400 shrink-0 mt-0.5">⚠️</span>
-              <p className="text-sm text-amber-300">{profileError}</p>
+          {/* OpenAI voice picker */}
+          {provider === 'openai' && (
+            <div className="space-y-2">
+              <p className="text-xs text-neutral-500">选择声音（OpenAI）</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'nova',    label: 'Nova',    desc: '女声·清晰' },
+                  { id: 'shimmer', label: 'Shimmer', desc: '女声·柔和' },
+                  { id: 'alloy',   label: 'Alloy',   desc: '中性·自然' },
+                  { id: 'echo',    label: 'Echo',    desc: '男声·标准' },
+                  { id: 'fable',   label: 'Fable',   desc: '男声·温暖' },
+                  { id: 'onyx',    label: 'Onyx',    desc: '男声·低沉' },
+                ].map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => setOpenaiVoice(v.id)}
+                    disabled={isGenerating}
+                    className={[
+                      'rounded-xl border px-3 py-2.5 text-left transition-all',
+                      openaiVoice === v.id
+                        ? 'border-emerald-500 bg-emerald-950/40 text-emerald-300'
+                        : 'border-neutral-700 bg-neutral-800/50 text-neutral-400 hover:border-neutral-600 hover:text-neutral-300',
+                    ].join(' ')}
+                  >
+                    <div className="text-sm font-medium">{v.label}</div>
+                    <div className="text-[11px] opacity-70 mt-0.5">{v.desc}</div>
+                  </button>
+                ))}
+              </div>
             </div>
+          )}
+
+          {/* ElevenLabs voice picker */}
+          {provider === 'elevenlabs' && (
+            <>
+              <VoiceIdInput
+                value={voiceId}
+                onChange={setVoiceId}
+                voices={voices}
+                isLoadingVoices={isLoadingVoices}
+                disabled={isGenerating}
+              />
+              <div className="h-px bg-neutral-800" />
+              <VoiceRecorder
+                onUseRecording={(file) => setReferenceFiles((prev) => [...prev, file])}
+              />
+              <ReferenceAudioUpload
+                files={referenceFiles}
+                onFilesChange={setReferenceFiles}
+                onCreateProfile={handleCreateProfile}
+                disabled={isGenerating}
+                isCreatingProfile={isCreatingProfile}
+                createdVoiceId={createdVoiceId}
+              />
+              {profileError && (
+                <div className="rounded-xl border border-amber-900/60 bg-amber-950/30 px-4 py-3 flex items-start gap-2">
+                  <span className="text-amber-400 shrink-0 mt-0.5">⚠️</span>
+                  <p className="text-sm text-amber-300">{profileError}</p>
+                </div>
+              )}
+            </>
           )}
         </section>
 
