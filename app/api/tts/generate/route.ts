@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
     if (text.length > 3000) {
       return NextResponse.json({ error: '单次请求最多 3,000 字，请使用分段生成。' }, { status: 400 })
     }
+    // Note: frontend splits at 2500 chars; this server limit is a safety cap only
 
     const { processedText, language } = preprocessText(text, { expressiveness, emotion })
     const provider = getProvider(providerName)

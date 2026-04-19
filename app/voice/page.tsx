@@ -262,7 +262,7 @@ export default function VoicePage() {
   }
 
   const charCount = text.length
-  const charLimit = 10000
+  const charLimit = 15000
   const charPercent = Math.min(100, (charCount / charLimit) * 100)
 
   return (
